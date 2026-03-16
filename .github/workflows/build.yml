@@ -1,0 +1,119 @@
+name: Build NFe Devolucao EXE
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:   # Permite rodar manualmente pelo GitHub
+
+jobs:
+  build-windows-exe:
+    name: Compilar .exe Windows (FPC)
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Baixa o codigo do repositorio
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+
+      # 2. Instala o Free Pascal Compiler (FPC) com suporte a cross-compile Windows
+      - name: Instalar FPC e cross-compiler Windows
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            fpc \
+            fpc-source \
+            fp-units-win32 \
+            fp-units-fcl \
+            fp-units-gtk2 \
+            binutils-mingw-w64-i686 \
+            gcc-mingw-w64-i686
+          fpc -iV
+
+      # 3. Instala unidades LCL necessarias (interface grafica)
+      - name: Instalar LCL (Lazarus Component Library)
+        run: |
+          sudo apt-get install -y \
+            lazarus-ide \
+            lcl \
+            lcl-utils \
+            lazbuild || true
+          # Verifica o que foi instalado
+          which lazbuild 2>/dev/null && lazbuild --version || echo "lazbuild nao encontrado, usando fpc direto"
+
+      # 4. Compila usando lazbuild (preferencial) ou fpc direto
+      - name: Compilar projeto
+        run: |
+          cd $GITHUB_WORKSPACE
+
+          # Tenta lazbuild primeiro
+          if which lazbuild 2>/dev/null; then
+            echo "Compilando com lazbuild..."
+            lazbuild \
+              --os=win32 \
+              --cpu=i386 \
+              --build-mode=Release \
+              NFeDevolucao.lpr \
+              --lazarusdir=/usr/share/lazarus
+          else
+            echo "Compilando com fpc direto (modo console/sem LCL grafica)..."
+            fpc \
+              -Twin32 \
+              -Pi386 \
+              -MObjFPC \
+              -Scghi \
+              -O2 \
+              -Xs \
+              -XX \
+              -CX \
+              -Fu/usr/lib/fpc/units/i386-win32/* \
+              -Fu./src \
+              NFeDevolucao.lpr
+          fi
+
+      # 5. Verifica se o .exe foi gerado
+      - name: Verificar executavel gerado
+        run: |
+          ls -lh *.exe 2>/dev/null || ls -lh NFeDevolucao* 2>/dev/null || \
+          find . -name "*.exe" -o -name "NFeDevolucao" 2>/dev/null | head -10
+          echo "Build concluido!"
+
+      # 6. Faz upload do .exe como artifact (disponivel para download por 30 dias)
+      - name: Upload do executavel Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: NFeDevolucao-Windows-EXE
+          path: |
+            *.exe
+            NFeDevolucao
+          retention-days: 30
+          if-no-files-found: warn
+
+      # 7. Cria uma Release automatica quando for push na branch main
+      - name: Criar Release automatica (apenas em push no main)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: "NFe Devolucao v${{ github.run_number }}"
+          body: |
+            ## Sistema de Devolucao NF-e v2.0
+
+            Build automatico gerado pelo GitHub Actions.
+
+            ### Como usar
+            1. Baixe o arquivo `NFeDevolucao.exe` abaixo
+            2. Coloque na mesma pasta que o `sqlite3.dll`
+            3. Execute — o banco de dados sera criado automaticamente
+
+            ### Download do sqlite3.dll
+            https://www.sqlite.org/download.html (DLL 32-bit para Windows)
+
+            Build: #${{ github.run_number }} | Commit: ${{ github.sha }}
+          files: |
+            *.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
