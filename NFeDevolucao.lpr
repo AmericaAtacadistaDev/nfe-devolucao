@@ -1,6 +1,7 @@
 program NFeDevolucao;
 
 {$mode objfpc}{$H+}
+{$APPTYPE GUI}
 
 uses
   {$IFDEF UNIX}cthreads,{$ENDIF}
@@ -22,7 +23,6 @@ var
 begin
   Application.Initialize;
   Application.Title := APP_TITLE;
-  RequireDerivedFormResource := True;
 
   InitDB;
 
